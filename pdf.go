@@ -13,7 +13,7 @@ import (
 	"os"
 )
 
-func ReadPdf(file multipart.File, docHeader multipart.FileHeader) error {
+func ReadPdf(file multipart.File, docHeader multipart.FileHeader) ([]byte, error) {
 	var (
 		output = new(bytes.Buffer)
 	)
@@ -21,7 +21,7 @@ func ReadPdf(file multipart.File, docHeader multipart.FileHeader) error {
 	document, err := docHeader.Open()
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fmt.Println("1")
 
@@ -32,14 +32,14 @@ func ReadPdf(file multipart.File, docHeader multipart.FileHeader) error {
 	mimeDocument := mimetype.Detect(docBuff.Bytes())
 
 	if !mimeDocument.Is("application/pdf") { //TODO buat converter dari jpg, doc k pdf
-		return errors.New("document is not pdf")
+		return nil, errors.New("document is not pdf")
 	}
 
 	//infoByts, totalPage, err :=
 	_, totalPage, err := getPageInfo(document)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	wmMap := make(map[int][]*pdfcpu.Watermark)
@@ -47,12 +47,12 @@ func ReadPdf(file multipart.File, docHeader multipart.FileHeader) error {
 	qr, err := os.Open("./pkg/pdf/output.jpg")
 	if err != nil {
 		fmt.Println(err)
-		return err
+		return nil, err
 	}
 	defer qr.Close()
 	qrfile, err := ioutil.ReadAll(qr)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fmt.Println("2")
 
@@ -71,7 +71,7 @@ func ReadPdf(file multipart.File, docHeader multipart.FileHeader) error {
 	err = api.AddWatermarksSliceMap(document, output, wmMap, nil)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	filePath := "temp.pdf" // Path untuk file sementara
@@ -80,7 +80,7 @@ func ReadPdf(file multipart.File, docHeader multipart.FileHeader) error {
 	// Membuat file sementara untuk PDF
 	tempFile, err := os.Create(filePath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer os.Remove(filePath) // Menghapus file sementara setelah selesai
 
@@ -88,7 +88,7 @@ func ReadPdf(file multipart.File, docHeader multipart.FileHeader) error {
 	_, err = io.Copy(tempFile, output)
 	if err != nil {
 		tempFile.Close()
-		return err
+		return nil, err
 	}
 	tempFile.Close()
 
@@ -100,27 +100,18 @@ func ReadPdf(file multipart.File, docHeader multipart.FileHeader) error {
 	path := "./images.pdf"
 	err = api.AddPropertiesFile(filePath, path, properties, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	fmt.Println("6")
 
 	fileOpen, err := readFileToBytes(path)
 
-	err = ioutil.WriteFile("./imagea2.pdf", fileOpen, 0644)
-
-	var pages []string
-	pages = append(pages, "2")
-	//get thumbnail
-	err = api.ExtractImagesFile(filePath, "./thumbnail.png", pages, nil)
-
-	if err != nil {
-		return err
-	}
+	//err = ioutil.WriteFile("./imagea2.pdf", fileOpen, 0644)
 
 	err = deleteFile(path)
 
-	return err
+	return fileOpen, err
 }
 
 func getPageInfo(document io.ReadSeeker) (pages map[int]MetaDocument, totalPage int, err error) {
