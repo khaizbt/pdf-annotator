@@ -13,7 +13,16 @@ import (
 	"os"
 )
 
-func ReadPdf(file multipart.File, docHeader multipart.FileHeader) ([]byte, error) {
+type Annotator struct {
+}
+
+var DefaultAnnotator = Annotator{}
+
+func ReadPdf(docHeader multipart.FileHeader) ([]byte, error) {
+	return DefaultAnnotator.ReadPdf(docHeader)
+}
+
+func (a Annotator) ReadPdf(docHeader multipart.FileHeader) ([]byte, error) {
 	var (
 		output = new(bytes.Buffer)
 	)
