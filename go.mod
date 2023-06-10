@@ -1,4 +1,4 @@
-module github.com/khaizbt/pdf-annotator
+module github.com/khaizbt/pdf_annotator
 
 go 1.19
 
