@@ -5,10 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/google/uuid"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/signintech/gopdf"
+	"github.com/yeqown/go-qrcode/v2"
+	"github.com/yeqown/go-qrcode/writer/standard"
+	"image"
 	"io"
 	"io/ioutil"
+	"log"
 	"mime/multipart"
 	"os"
 )
@@ -18,42 +24,80 @@ type Annotator struct {
 
 var DefaultAnnotator = Annotator{}
 
-func ReadPdf(docHeader multipart.FileHeader) ([]byte, error) {
-	return DefaultAnnotator.ReadPdf(docHeader)
+func ReadPdf(file multipart.File, docHeader multipart.FileHeader) error {
+	return DefaultAnnotator.ReadPdf(file, docHeader)
 }
 
-func (a Annotator) ReadPdf(docHeader multipart.FileHeader) ([]byte, error) {
-	var (
-		output = new(bytes.Buffer)
-	)
+func (a Annotator) ReadPdf(file multipart.File, docHeader multipart.FileHeader) error {
 
+	//var pngFiles = new(bytes.Buffer)
 	document, err := docHeader.Open()
 
 	if err != nil {
-		return nil, err
+		return err
 	}
 	fmt.Println("1")
 
 	docBuff := new(bytes.Buffer)
+
+	if err != nil {
+		return err
+	}
 
 	_, _ = io.Copy(docBuff, document)
 
 	mimeDocument := mimetype.Detect(docBuff.Bytes())
 
 	if !mimeDocument.Is("application/pdf") { //TODO buat converter dari jpg, doc k pdf
-		return nil, errors.New("document is not pdf")
+
+		fmt.Println("mimenya", mimeDocument.String())
+		if mimeDocument.Is("image/png") {
+
+			//pathPdf := "./pdf-temp.pdf"
+			data, err := convertPNGToPDF(file)
+
+			if err != nil {
+				return err
+			}
+
+			//data, err := os.Open(pathPdf)
+			pdfFile := bytes.NewReader(data)
+
+			_, err = parseQrCode(pdfFile)
+			return nil
+		}
+
+		log.Println("file not supported1")
+
+		return errors.New("file not supported")
+
 	}
 
-	//infoByts, totalPage, err :=
+	_, err = parseQrCode(document)
+
+	return nil
+
+}
+
+func parseQrCode(document io.ReadSeeker) ([]byte, error) {
+	var (
+		output = new(bytes.Buffer)
+	)
+
+	//fmt.Println("doc", document)
 	_, totalPage, err := getPageInfo(document)
 
+	//fmt.Println("1")
 	if err != nil {
+		fmt.Println("err", err)
 		return nil, err
 	}
 
 	wmMap := make(map[int][]*pdfcpu.Watermark)
 
-	qr, err := os.Open("./pkg/pdf/output.jpg")
+	drawQrCode()
+
+	qr, err := os.Open("./repo-qrcode.jpeg")
 	if err != nil {
 		fmt.Println(err)
 		return nil, err
@@ -101,8 +145,6 @@ func (a Annotator) ReadPdf(docHeader multipart.FileHeader) ([]byte, error) {
 	}
 	tempFile.Close()
 
-	fmt.Println("5")
-
 	// Menambahkan properti ke file PDF menggunakan pdfcpu API
 	properties := map[string]string{"Creator": "PT. Privy Identitas Digital", "Producer": "PrivyID PDF Processor"}
 
@@ -112,24 +154,26 @@ func (a Annotator) ReadPdf(docHeader multipart.FileHeader) ([]byte, error) {
 		return nil, err
 	}
 
+	defer deleteFile(path)
+
 	fmt.Println("6")
 
 	fileOpen, err := readFileToBytes(path)
 
-	//err = ioutil.WriteFile("./imagea2.pdf", fileOpen, 0644)
-
+	err = ioutil.WriteFile("./imagea5.pdf", fileOpen, 0644)
 	err = deleteFile(path)
 
-	return fileOpen, err
+	return nil, err
 }
 
 func getPageInfo(document io.ReadSeeker) (pages map[int]MetaDocument, totalPage int, err error) {
 	pages = make(map[int]MetaDocument)
+	fmt.Println(",assao")
 	ctxReader, err := api.ReadContext(document, nil)
 	if err != nil {
+		fmt.Println("siap111")
 		return
 	}
-
 	media, err := ctxReader.PageBoundaries()
 	if err != nil {
 		return pages, totalPage, err
@@ -171,7 +215,10 @@ func getPageInfo(document io.ReadSeeker) (pages map[int]MetaDocument, totalPage 
 	return
 }
 
-// TODO buat function tempel PDF
+// Jika terdapat error, mohon install pdfcpu versi 0.3.13 ya dikarenakan penempelan PDFnya menggunakan
+// versi 0.3.13. dibawah ini adalah cara installnya
+
+// go get github.com/pdfcpu/pdfcpu@v0.3.13
 func createWatermark(img []byte, typeWatermark string, x, y int, scale float64) *pdfcpu.Watermark {
 	wm := pdfcpu.DefaultWatermarkConfig()
 	wm.Mode = pdfcpu.WMImage
@@ -215,52 +262,128 @@ func deleteFile(filePath string) error {
 	return nil
 }
 
-//func generateThumbnailFromPDF(inputPath, thumbnailPath string, pageNumber int) error {
-//	// Read the PDF using pdfcpu API
-//	ctx, err := api.ReadContextFile(inputPath)
-//	if err != nil {
-//		return err
-//	}
-//
-//	// Extract images from the specified page
-//	err := api.Ext(ctx, int(1), nil)
-//	if err != nil {
-//		return err
-//	}
-//
-//	// Select the first image from the extracted images
-//	if len(imageList) == 0 {
-//		return fmt.Errorf("no images found on page %d", pageNumber)
-//	}
-//	selectedImage := imageList[0]
-//
-//	// Decode the selected image
-//	img, _, err := image.Decode(selectedImage)
-//	if err != nil {
-//		return err
-//	}
-//
-//	// Create the thumbnail image with the desired size
-//	thumbnail := resizeImage(img, 200, 200)
-//
-//	// Save the thumbnail as JPEG
-//	file, err := os.Create(thumbnailPath)
-//	if err != nil {
-//		return err
-//	}
-//	defer file.Close()
-//
-//	err = jpeg.Encode(file, thumbnail, &jpeg.Options{Quality: 90})
-//	if err != nil {
-//		return err
-//	}
-//
-//	return nil
-//}
-//
-//func resizeImage(img image.Image, width, height int) image.Image {
-//	thumbnail := image.NewRGBA(image.Rect(0, 0, width, height))
-//	g := resize.Thumbnail(uint(width), uint(height), img, resize.Lanczos3)
-//	draw.Draw(thumbnail, thumbnail.Bounds(), g, image.Point{}, draw.Src)
-//	return thumbnail
-//}
+func convertPNGToPDF(pngFile multipart.File) ([]byte, error) {
+	images, _, err := image.Decode(pngFile)
+	if err != nil {
+		return nil, err
+	}
+
+	//Convert if image not 8 bit
+
+	pdf := gopdf.GoPdf{}
+	pdf.Start(gopdf.Config{PageSize: *gopdf.PageSizeA4})
+	pdf.AddPage()
+
+	err = pdf.ImageFrom(images, 0, 0, nil) //print image
+
+	if err != nil {
+		log.Println("print image got", err)
+		return nil, err
+	}
+	pdfBytes := pdf.GetBytesPdf()
+	//err = convertPNGToPDF(file, "./imagessss.pdf")
+	if err != nil {
+
+		log.Fatalf("Error converting PNG to PDF: %v", err)
+		return nil, err
+	}
+
+	return pdfBytes, nil
+}
+
+func convertPNGToPDFv2(pngFile io.Reader, tempDir string) ([]byte, error) {
+
+	outputPath := "./output.jpg"
+	outputFile, err := os.Create(outputPath)
+	if err != nil {
+		fmt.Printf("Error creating output file: %v", err)
+		os.Exit(1)
+	}
+	defer outputFile.Close()
+
+	//imga, _, err := image.Decode(pngFile)
+	//
+	//if err != nil {
+	//	fmt.Println("Error", err)
+	//}
+	//outputImage := resize.Resize(500, 500, imga, resize.Lanczos3)
+	//
+	//err = png.Encode(outputFile, outputImage)
+	//
+	//if err != nil {
+	//	fmt.Printf("Error Convert Encode: %v", err)
+	//	os.Exit(1)
+	//}
+	_, err = io.Copy(outputFile, pngFile)
+	if err != nil {
+		fmt.Printf("Error copying file contents: %v", err)
+		os.Exit(1)
+	}
+
+	err = api.ImportImagesFile([]string{outputPath}, tempDir, nil, nil)
+	//err := api.ImportImagesFile([]string{"31-2.jpg"}, "coba.pdf", nil, nil)
+
+	if err != nil {
+		fmt.Println("masuk rumah", err)
+		panic(err)
+		return nil, err
+	}
+
+	defer deleteFile(outputPath)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return nil, err
+
+}
+
+type ByteReader struct {
+	data []byte
+	pos  int
+}
+
+func (r *ByteReader) Read(p []byte) (n int, err error) {
+	if r.pos >= len(r.data) {
+		return 0, io.EOF
+	}
+
+	n = copy(p, r.data[r.pos:])
+	r.pos += n
+	return n, nil
+}
+
+func drawQrCode() {
+
+	qrc, err := qrcode.New(fmt.Sprintf("https://privy.id/verify/%s", uuid.New()))
+	if err != nil {
+		fmt.Printf("could not generate QRCode: %v", err)
+		return
+	}
+
+	imgLogo, err := os.Open("./privy.png")
+
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	imageLogo, _, err := image.Decode(imgLogo)
+
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	w, err := standard.New("./repo-qrcode.jpeg", standard.WithLogoImage(imageLogo), standard.WithQRWidth(10))
+	if err != nil {
+		fmt.Printf("standard.New failed: %v", err)
+		return
+	}
+
+	// save file
+	if err = qrc.Save(w); err != nil {
+		fmt.Printf("could not save image: %v", err)
+	}
+}
