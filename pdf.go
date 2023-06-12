@@ -24,58 +24,50 @@ type Annotator struct {
 
 var DefaultAnnotator = Annotator{}
 
-func ReadPdf(file multipart.File, docHeader multipart.FileHeader) error {
-	return DefaultAnnotator.ReadPdf(file, docHeader)
+func ReadPdf(file multipart.File) ([]byte, error) {
+	return DefaultAnnotator.ReadPdf(file)
 }
 
-func (a Annotator) ReadPdf(file multipart.File, docHeader multipart.FileHeader) error {
-
-	//var pngFiles = new(bytes.Buffer)
-	document, err := docHeader.Open()
-
-	if err != nil {
-		return err
-	}
-	fmt.Println("1")
-
+func (a Annotator) ReadPdf(file multipart.File) ([]byte, error) {
 	docBuff := new(bytes.Buffer)
-
-	if err != nil {
-		return err
-	}
-
-	_, _ = io.Copy(docBuff, document)
+	_, _ = io.Copy(docBuff, file)
 
 	mimeDocument := mimetype.Detect(docBuff.Bytes())
 
 	if !mimeDocument.Is("application/pdf") { //TODO buat converter dari jpg, doc k pdf
-
-		fmt.Println("mimenya", mimeDocument.String())
+		log.Println(mimeDocument.String())
 		if mimeDocument.Is("image/png") {
 
-			//pathPdf := "./pdf-temp.pdf"
 			data, err := convertPNGToPDF(file)
 
 			if err != nil {
-				return err
+				log.Println(err)
+				return nil, err
 			}
+
+			log.Println("masuk sini ges")
 
 			//data, err := os.Open(pathPdf)
 			pdfFile := bytes.NewReader(data)
 
 			_, err = parseQrCode(pdfFile)
-			return nil
+			return nil, nil
 		}
 
 		log.Println("file not supported1")
 
-		return errors.New("file not supported")
+		return nil, errors.New("file not supported")
 
 	}
 
-	_, err = parseQrCode(document)
+	qr, err := parseQrCode(file)
 
-	return nil
+	if err != nil {
+		log.Println(err)
+		panic(err)
+	}
+
+	return qr, nil
 
 }
 
@@ -97,11 +89,13 @@ func parseQrCode(document io.ReadSeeker) ([]byte, error) {
 
 	drawQrCode()
 
-	qr, err := os.Open("./repo-qrcode.jpeg")
+	pathQr := "./assets/repo-qrcode.jpeg"
+	qr, err := os.Open(pathQr)
 	if err != nil {
 		fmt.Println(err)
 		return nil, err
 	}
+	defer deleteFile(pathQr)
 	defer qr.Close()
 	qrfile, err := ioutil.ReadAll(qr)
 	if err != nil {
@@ -119,7 +113,7 @@ func parseQrCode(document io.ReadSeeker) ([]byte, error) {
 		),
 	)
 
-	fmt.Println("3")
+	log.Println("3")
 
 	err = api.AddWatermarksSliceMap(document, output, wmMap, nil)
 
@@ -156,14 +150,14 @@ func parseQrCode(document io.ReadSeeker) ([]byte, error) {
 
 	defer deleteFile(path)
 
-	fmt.Println("6")
+	log.Println("6")
 
 	fileOpen, err := readFileToBytes(path)
 
-	err = ioutil.WriteFile("./imagea5.pdf", fileOpen, 0644)
+	//err = ioutil.WriteFile("./imagea5.pdf", fileOpen, 0644)
 	err = deleteFile(path)
 
-	return nil, err
+	return fileOpen, err
 }
 
 func getPageInfo(document io.ReadSeeker) (pages map[int]MetaDocument, totalPage int, err error) {
@@ -262,11 +256,13 @@ func deleteFile(filePath string) error {
 	return nil
 }
 
-func convertPNGToPDF(pngFile multipart.File) ([]byte, error) {
+func convertPNGToPDF(pngFile io.Reader) ([]byte, error) {
 	images, _, err := image.Decode(pngFile)
 	if err != nil {
+		log.Println(err)
 		return nil, err
 	}
+	log.Println("siap")
 
 	//Convert if image not 8 bit
 
@@ -362,7 +358,7 @@ func drawQrCode() {
 		return
 	}
 
-	imgLogo, err := os.Open("./privy.png")
+	imgLogo, err := os.Open("./assets/privy.png")
 
 	if err != nil {
 		log.Println(err)
@@ -376,7 +372,7 @@ func drawQrCode() {
 		return
 	}
 
-	w, err := standard.New("./repo-qrcode.jpeg", standard.WithLogoImage(imageLogo), standard.WithQRWidth(10))
+	w, err := standard.New("./assets/repo-qrcode.jpeg", standard.WithLogoImage(imageLogo), standard.WithQRWidth(10))
 	if err != nil {
 		fmt.Printf("standard.New failed: %v", err)
 		return
